@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 import 'package:dio/dio.dart';
 import 'package:flutter/widgets.dart';
 
@@ -10,6 +11,7 @@ class ApiBillTracker {
   final Duration flushInterval;
 
   int _pendingBytes = 0;
+  String _currentPath = '/';
   Timer? _timer;
   late final Dio _dio;
 
@@ -57,6 +59,13 @@ class ApiBillTracker {
     return _instance!;
   }
 
+  /// Set the current route/path and track a page view.
+  /// Call this on every route change.
+  void trackPageView(String path) {
+    _currentPath = path;
+    _sendBeacon(0);
+  }
+
   /// Record bytes from a network response.
   void trackBytes(int bytes) {
     if (bytes > 0) {
@@ -64,7 +73,7 @@ class ApiBillTracker {
     }
   }
 
-  /// Flush pending bytes to the API immediately.
+  /// Flush pending bytes to the API.
   Future<void> flush() async {
     if (_pendingBytes <= 0) return;
 
@@ -72,17 +81,26 @@ class ApiBillTracker {
     _pendingBytes = 0;
 
     try {
-      await _dio.post(
-        '/tracker/bandwidth',
-        data: {
-          'siteId': siteId,
-          'bytes': bytes,
-        },
-      );
+      await _sendBeacon(bytes);
     } catch (_) {
-      // Restore bytes on failure so they're sent next time
       _pendingBytes += bytes;
     }
+  }
+
+  Future<void> _sendBeacon(int bytes) async {
+    final screenWidth = PlatformDispatcher.instance.views.first.physicalSize.width /
+        PlatformDispatcher.instance.views.first.devicePixelRatio;
+
+    await _dio.post(
+      '/tracker/bandwidth',
+      data: {
+        'siteId': siteId,
+        'bytes': bytes,
+        'url': _currentPath,
+        'referrer': '',
+        'screenWidth': screenWidth.round(),
+      },
+    );
   }
 
   void _startTimer() {
